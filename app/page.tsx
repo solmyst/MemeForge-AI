@@ -13,7 +13,7 @@ export default function Home() {
             <span>We aren't responsible for your bad sense of humor</span>
           </div>
           <h1 className="text-5xl md:text-7xl font-extrabold tracking-tight bg-gradient-to-br from-white to-zinc-500 bg-clip-text text-transparent animate-float">
-            MemeForge AI
+            Meme Bhandar
           </h1>
           <p className="text-lg md:text-xl text-zinc-400 font-medium">
             this is local meme generator which doesn't generate images it generate generational trauma          </p>

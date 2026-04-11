@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 
+export const maxDuration = 300; // 5 minutes timeout for slow model loads
+
 export async function POST(req: Request) {
   try {
     const { topic, humorStyle } = await req.json();
@@ -9,26 +11,27 @@ export async function POST(req: Request) {
     }
 
     const prompt = `
-      You are an expert at creating internet memes.
-      Your task is to read the following scenario and create a funny 2-part meme caption.
+      You are the world's most savage meme creator and a master of GenZ / Internet brainrot humor.
+      Your task is to turn a factual description into a 2-part meme caption that is relatable, ironic, and hilarious.
 
       Scenario: "${topic}"
-      Humor Style: ${humorStyle || 'GenZ'}
+      Humor Style: ${humorStyle || 'GenZ Brainrot'}
 
-      RULES:
-      1. Stay strictly on topic. Describe the EXACT scenario provided.
-      2. Keep the text EXTREMELY short (Max 5 words per line).
-      3. The top text sets up the joke. The bottom text is the funny punchline or reaction.
+      MEME CREATION RULES:
+      1. Use modern slang where appropriate (rizz, aura, cooked, main character, canon event, skibidi, fanum tax, crashout, etc.).
+      2. Keep it punchy: Max 4-5 words per line.
+      3. The Top Text identifies the situation ("POV: ...", "When you ...", "Me: ...").
+      4. The Bottom Text is the soul-crushing or ironic reaction.
+      5. BE ABSOLUTELY SAVAGE. Make it actually funny for 2026. No "wholesome" content allowed.
 
       EXAMPLES:
-      Scenario: "teacher scolding me for being late while my best friend is still at home"
-      {"topText": "me getting yelled at", "bottomText": "my bro still sleeping"}
+      Scenario: "person looking stressed while staring at a keyboard"
+      {"topText": "me writing 'best regards'", "bottomText": "actually wishing for their downfall"}
 
-      Scenario: "I studied for 8 hours but the exam is on the chapter I skipped"
-      {"topText": "studied all night", "bottomText": "wrong chapter"}
+      Scenario: "a small dog looking proud in a tiny hat"
+      {"topText": "POV: you have 1000 aura", "bottomText": "but still live with your mom"}
 
-      Return ONLY a JSON object in this format:
-      {"topText": "...", "bottomText": "..."}
+      Return ONLY a JSON object: {"topText": "...", "bottomText": "..."}
     `;
 
     let topText = "";
@@ -39,21 +42,25 @@ export async function POST(req: Request) {
     while (attempts < 3) {
       attempts++;
       
-      // Connect to Local Ollama Instance with 60s timeout
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 60000);
+    const model = process.env.OLLAMA_MODEL || "llama3.1:latest";
+    console.log(`\n🤖 [AI GENERATE] Model: ${model}`);
+    
+    // Connect to Local Ollama Instance with 120s timeout (increased for slow model swaps)
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 120000);
 
-      const ollamaRes = await fetch('http://localhost:11434/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: process.env.OLLAMA_MODEL || "llama3.1:latest",
-          messages: [{ role: "user", content: prompt }],
-          format: attempts < 3 ? "json" : undefined, // Try without JSON format on last attempt
-          stream: false
-        }),
-        signal: controller.signal
-      });
+    const ollamaRes = await fetch('http://localhost:11434/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: model,
+        messages: [{ role: "user", content: prompt }],
+        format: attempts < 3 ? "json" : undefined, // Try without JSON format on last attempt
+        stream: false,
+        keep_alive: 0 // Free up RAM immediately after generation
+      }),
+      signal: controller.signal
+    });
       clearTimeout(timeoutId);
 
       if (!ollamaRes.ok) {
@@ -66,7 +73,15 @@ export async function POST(req: Request) {
       try {
         const parsed = JSON.parse(lastRawText);
         const responseText = parsed.message?.content || "";
-        const cleanJson = responseText.replace(/```json/gi, '').replace(/```/g, '').trim();
+        console.log(`[AI] Cleaned response text:`, responseText.substring(0, 100) + '...');
+        
+        // More aggressive JSON cleaning
+        const cleanJson = responseText
+          .replace(/```json/gi, '')
+          .replace(/```/g, '')
+          .replace(/^[\s\S]*?({[\s\S]*})[\s\S]*$/, '$1') // Extract only the first JSON object
+          .trim();
+          
         const innerParsed = JSON.parse(cleanJson || "{}");
         
         // Deep search for strings
