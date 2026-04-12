@@ -10,15 +10,16 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Image is required' }, { status: 400 });
     }
 
-    const model = process.env.OLLAMA_VISION_MODEL || process.env.OLLAMA_MODEL || "moondream";
+    const model = process.env.OLLAMA_VISION_MODEL || process.env.OLLAMA_MODEL || "llava";
     const isVisionModel = /llava|vision|moondream|gemma4|paligemma/i.test(model);
 
     console.log(`\n📷 [AI VISION] Identifying photo content using: ${model}`);
     if (!isVisionModel) {
-      console.warn(`\n⚠️  WARNING: "${model}" might not support vision! We recommend using "moondream" or "llava".`);
+      console.warn(`\n⚠️  WARNING: "${model}" might not support vision! We recommend using "llava", "moondream", or "gemma4".`);
     }
 
-    const ollamaRes = await fetch('http://localhost:11434/api/chat', {
+    const baseUrl = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
+    const ollamaRes = await fetch(`${baseUrl}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -26,12 +27,17 @@ export async function POST(req: Request) {
         messages: [
           {
             role: 'user',
-            content: 'As a master of ironic observation, analyze this photo. Identify the main subject, people, their facial expressions, specific objects, and the core situational context. Focus on any funny, awkward, or ironic details that would make for a great meme. Provide a clear, detailed 1-2 sentence description of the "vibe" and what is happening.',
+            content: 'Analyze this photo and provide a detailed 1-2 sentence description. Identify the main subjects, their expressions, important objects, and the situational context. Focus on details that would be great for a funny meme.',
             images: [image]
           }
         ],
         stream: false,
-        keep_alive: 0
+        keep_alive: "5m",
+        options: {
+          num_predict: 80,
+          num_ctx: 2048,
+          temperature: 0.5
+        }
       }),
     });
 

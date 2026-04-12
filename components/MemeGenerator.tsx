@@ -140,8 +140,8 @@ export default function MemeGenerator() {
 
       for (let i = 1; i < words.length; i++) {
         const word = words[i];
-        const width = ctx.measureText(currentLine + " " + word).width;
-        if (width < maxWidth) {
+        const widthRes = ctx.measureText(currentLine + " " + word).width;
+        if (widthRes < maxWidth) {
           currentLine += " " + word;
         } else {
           lines.push(currentLine);
@@ -152,26 +152,37 @@ export default function MemeGenerator() {
       return lines;
     };
 
+    const topLines = top ? wrapText(top) : [];
+    const bottomLines = bottom ? wrapText(bottom) : [];
+    const totalLines = topLines.length + bottomLines.length;
+
+    // Dynamic Scaling: Reduce font size if there are too many lines
+    let adjustedFontSize = fontSize;
+    if (totalLines > 3) {
+      adjustedFontSize = Math.floor(fontSize * (3 / totalLines));
+      ctx.font = `bold ${adjustedFontSize}px Impact, sans-serif`;
+      ctx.lineWidth = Math.floor(adjustedFontSize / 8);
+    }
+    const adjustedLineHeight = adjustedFontSize * 1.2;
+
     const drawLines = (lines: string[], startY: number, align: 'top' | 'bottom') => {
       lines.forEach((line, index) => {
         const y = align === 'top' 
-          ? startY + (index * lineHeight)
-          : startY - ((lines.length - 1 - index) * lineHeight);
+          ? startY + (index * adjustedLineHeight)
+          : startY - ((lines.length - 1 - index) * adjustedLineHeight);
         
         ctx.strokeText(line, width / 2, y);
         ctx.fillText(line, width / 2, y);
       });
     };
 
-    if (top) {
+    if (topLines.length > 0) {
       ctx.textBaseline = 'top';
-      const topLines = wrapText(top);
       drawLines(topLines, height * 0.05, 'top');
     }
 
-    if (bottom) {
+    if (bottomLines.length > 0) {
       ctx.textBaseline = 'bottom';
-      const bottomLines = wrapText(bottom);
       drawLines(bottomLines, height * 0.95, 'bottom');
     }
   };
@@ -224,12 +235,19 @@ export default function MemeGenerator() {
       setCurrentMeme(newMeme);
       
       if (memeDataURL.length < 500000) { 
-        saveMemeToHistory({ url: memeDataURL, topic: description, timestamp: Date.now() });
+        saveMemeToHistory({ 
+          url: memeDataURL, 
+          topic: description, 
+          top: topText, 
+          bottom: bottomText, 
+          template: { id: 'custom', name: 'Your Snap', blank: '' },
+          timestamp: Date.now() 
+        });
         setHistory(getMemeHistory());
       }
       
       console.log("Custom meme generated successfully!");
-    } catch (error: any) {
+    } catch (error: Error | any) {
       console.error("Generation error:", error);
       const isTimeout = error.name === 'AbortError' || error.message.includes('timeout') || error.message.includes('signal');
       const helpText = isTimeout 
@@ -264,6 +282,53 @@ export default function MemeGenerator() {
     
     stopCamera();
     processImage(rawDataURL, rawBase64);
+  };
+
+  const regenerateCaptionOnly = async () => {
+    if (!photoDescription || !capturedPreview) return;
+    
+    setLoading(true);
+    try {
+      // Reuse existing description to get a new caption
+      const { topText, bottomText } = await generateCaption(photoDescription, style);
+      
+      // Redraw on the existing canvas
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      const img = new Image();
+      img.src = capturedPreview;
+      await new Promise(resolve => img.onload = resolve);
+      
+      ctx.drawImage(img, 0, 0);
+      drawMemeText(ctx, canvas.width, canvas.height, topText, bottomText);
+      const memeDataURL = canvas.toDataURL('image/jpeg', 0.85);
+
+      const newMeme = { 
+        url: memeDataURL, 
+        top: topText, 
+        bottom: bottomText, 
+        template: { id: 'custom', name: 'Your Snap', blank: '' } 
+      };
+      
+      setCurrentMeme(newMeme);
+      saveMemeToHistory({ 
+        url: memeDataURL, 
+        topic: photoDescription, 
+        top: topText, 
+        bottom: bottomText, 
+        template: { id: 'custom', name: 'Your Snap', blank: '' },
+        timestamp: Date.now() 
+      });
+      setHistory(getMemeHistory());
+    } catch (err) {
+      console.error("Regeneration error:", err);
+      if (err instanceof Error) alert(err.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -323,9 +388,16 @@ export default function MemeGenerator() {
       const url = buildMemeURL(template.id, topText, bottomText);
       const newMeme = { url, top: topText, bottom: bottomText, template };
       setCurrentMeme(newMeme);
-      saveMemeToHistory({ url, topic, timestamp: Date.now() });
+      saveMemeToHistory({ 
+        url, 
+        topic, 
+        top: topText, 
+        bottom: bottomText, 
+        template, 
+        timestamp: Date.now() 
+      });
       setHistory(getMemeHistory());
-    } catch (error: any) {
+    } catch (error: Error | any) {
       console.error(error);
       alert(error.message || 'Something went wrong generating the meme!');
     } finally {
@@ -335,15 +407,31 @@ export default function MemeGenerator() {
 
   const handleRegenerateCaption = async () => {
     if (!currentMeme) return;
+    
+    // Case 1: Custom Snap Meme
+    if (currentMeme.template.id === 'custom') {
+      await regenerateCaptionOnly();
+      return;
+    }
+
+    // Case 2: Standard Template Meme
     const topicStr = mode === 'camera' ? (photoDescription || topic) : topic;
     setLoading(true);
     try {
       const { topText, bottomText } = await generateCaption(topicStr, style);
       const url = buildMemeURL(currentMeme.template.id, topText, bottomText);
-      setCurrentMeme({ ...currentMeme, url, top: topText, bottom: bottomText });
-      saveMemeToHistory({ url, topic: topicStr, timestamp: Date.now() });
+      const newMeme = { ...currentMeme, url, top: topText, bottom: bottomText };
+      setCurrentMeme(newMeme);
+      saveMemeToHistory({ 
+        url, 
+        topic: topicStr, 
+        top: topText, 
+        bottom: bottomText, 
+        template: currentMeme.template, 
+        timestamp: Date.now() 
+      });
       setHistory(getMemeHistory());
-    } catch (error: any) {
+    } catch (error: Error | any) {
       console.error(error);
       alert(error.message || 'Failed to regenerate caption');
     } finally {
@@ -355,9 +443,17 @@ export default function MemeGenerator() {
     if (!currentMeme) return;
     const newTemplate = getRandomTemplate(templates);
     const url = buildMemeURL(newTemplate.id, currentMeme.top, currentMeme.bottom);
-    setCurrentMeme({ ...currentMeme, url, template: newTemplate });
+    const newMeme = { ...currentMeme, url, template: newTemplate };
+    setCurrentMeme(newMeme);
     const topicStr = mode === 'camera' ? (photoDescription || 'snap') : topic;
-    saveMemeToHistory({ url, topic: topicStr, timestamp: Date.now() });
+    saveMemeToHistory({ 
+      url, 
+      topic: topicStr, 
+      top: currentMeme.top, 
+      bottom: currentMeme.bottom, 
+      template: newTemplate, 
+      timestamp: Date.now() 
+    });
     setHistory(getMemeHistory());
   };
 
@@ -367,6 +463,13 @@ export default function MemeGenerator() {
     const { outcome } = await deferredPrompt.userChoice;
     if (outcome === 'accepted') {
       setDeferredPrompt(null);
+    }
+  };
+
+  const clearHistory = () => {
+    if (confirm('Are you sure you want to delete your meme history? This cannot be undone.')) {
+      localStorage.removeItem('memeHistory');
+      setHistory([]);
     }
   };
 
@@ -397,28 +500,41 @@ export default function MemeGenerator() {
         </div>
       )}
 
-      {/* Mode Tabs */}
-      <div className="flex gap-2 p-1 bg-zinc-900 border border-zinc-800 rounded-xl w-fit mx-auto">
-        <button
-          onClick={() => handleModeChange('text')}
-          className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold transition-all ${
-            mode === 'text'
-              ? 'bg-purple-600 text-white shadow-lg shadow-purple-500/20'
-              : 'text-zinc-400 hover:text-white'
-          }`}
+      {/* Mode Tabs & Style Selector */}
+      <div className="flex flex-col sm:flex-row gap-4 items-center justify-center mx-auto">
+        <div className="flex gap-2 p-1 bg-zinc-900 border border-zinc-800 rounded-xl w-fit">
+          <button
+            onClick={() => handleModeChange('text')}
+            className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold transition-all ${
+              mode === 'text'
+                ? 'bg-purple-600 text-white shadow-lg shadow-purple-500/20'
+                : 'text-zinc-400 hover:text-white'
+            }`}
+          >
+            <Type size={15} /> Type a Topic
+          </button>
+          <button
+            onClick={() => handleModeChange('camera')}
+            className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold transition-all ${
+              mode === 'camera'
+                ? 'bg-purple-600 text-white shadow-lg shadow-purple-500/20'
+                : 'text-zinc-400 hover:text-white'
+            }`}
+          >
+            <Camera size={15} /> Snap to Meme
+          </button>
+        </div>
+
+        <select
+          value={style}
+          onChange={(e) => setStyle(e.target.value)}
+          className="px-4 py-3 bg-zinc-900 border border-zinc-800 rounded-xl text-white outline-none focus:ring-2 focus:ring-purple-500 transition-all cursor-pointer appearance-none text-sm font-medium"
         >
-          <Type size={15} /> Type a Topic
-        </button>
-        <button
-          onClick={() => handleModeChange('camera')}
-          className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold transition-all ${
-            mode === 'camera'
-              ? 'bg-purple-600 text-white shadow-lg shadow-purple-500/20'
-              : 'text-zinc-400 hover:text-white'
-          }`}
-        >
-          <Camera size={15} /> Snap to Meme
-        </button>
+          <option value="GenZ">🧠 GenZ Brainrot</option>
+          <option value="Dark Humor">💀 Dark Humor</option>
+          <option value="Sarcastic">🙄 Sarcastic</option>
+          <option value="Corporate">💼 Corporate</option>
+        </select>
       </div>
 
       {/* Main Generator Section */}
@@ -436,16 +552,6 @@ export default function MemeGenerator() {
               onKeyDown={(e) => e.key === 'Enter' && handleGenerate()}
             />
             <div className="flex flex-col sm:flex-row gap-4">
-              <select
-                value={style}
-                onChange={(e) => setStyle(e.target.value)}
-                className="px-6 py-4 bg-zinc-950 border border-zinc-800 rounded-xl text-white sm:w-1/3 outline-none focus:ring-2 focus:ring-purple-500 transition-all cursor-pointer appearance-none"
-              >
-                <option value="GenZ">🧠 GenZ Brainrot</option>
-                <option value="Dark Humor">💀 Dark Humor</option>
-                <option value="Sarcastic">🙄 Sarcastic</option>
-                <option value="Corporate">💼 Corporate</option>
-              </select>
               <button
                 onClick={handleGenerate}
                 disabled={loading || !topic}
@@ -475,16 +581,16 @@ export default function MemeGenerator() {
                   <p className="text-zinc-300 font-medium">Point your camera at anything</p>
                   <p className="text-zinc-500 text-sm mt-1">AI will roast it into a meme</p>
                 </div>
-                <div className="flex flex-col sm:flex-row gap-3 w-full max-w-sm">
+                <div className="flex flex-col sm:flex-row gap-3 w-full max-w-sm px-4">
                   <button
-                    onClick={startCamera}
-                    className="flex-1 px-6 py-3 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold rounded-xl transition-all shadow-lg hover:shadow-purple-500/25 flex items-center justify-center gap-2"
+                    onClick={() => document.getElementById('native-camera')?.click()}
+                    className="flex-1 px-4 py-3 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold rounded-xl transition-all shadow-lg hover:shadow-purple-500/25 flex items-center justify-center gap-2"
                   >
-                    <Camera size={18} /> Open Camera
+                    <Camera size={18} /> Take Photo
                   </button>
                   <button
                     onClick={() => document.getElementById('file-upload')?.click()}
-                    className="flex-1 px-6 py-3 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-bold rounded-xl transition-all flex items-center justify-center gap-2"
+                    className="flex-1 px-4 py-3 bg-zinc-800 hover:bg-zinc-700 text-white font-semibold rounded-xl transition-all flex items-center justify-center gap-2 border border-zinc-700"
                   >
                     <ImageIcon size={18} /> From Gallery
                   </button>
@@ -493,6 +599,14 @@ export default function MemeGenerator() {
                   id="file-upload"
                   type="file"
                   accept="image/*"
+                  onChange={handleFileUpload}
+                  className="hidden"
+                />
+                <input
+                  id="native-camera"
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
                   onChange={handleFileUpload}
                   className="hidden"
                 />
@@ -556,19 +670,13 @@ export default function MemeGenerator() {
                         <span className="animate-pulse">{loadingMessage}</span>
                       </div>
                     )}
-                    {photoDescription && (
-                      <div className="px-4 py-3 bg-zinc-950 border border-purple-500/20 rounded-lg">
-                        <p className="text-xs text-purple-400 font-semibold uppercase tracking-wide mb-1">AI saw:</p>
-                        <p className="text-zinc-300 text-sm italic">"{photoDescription}"</p>
-                      </div>
-                    )}
                     {!loading && (
                       <button
                         onClick={retakePhoto}
-                        className="px-5 py-2.5 bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/20 hover:border-purple-500/40 text-sm font-bold rounded-xl transition-all flex items-center gap-2 shadow-lg shadow-purple-500/5 group"
+                        className="px-5 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700 text-sm font-bold rounded-xl transition-all flex items-center gap-2"
                       >
-                        <RefreshCw size={16} className="group-hover:rotate-180 transition-transform duration-500" />
-                        Create a new meme
+                        <Camera size={16} />
+                        New Photo
                       </button>
                     )}
                   </div>
@@ -611,7 +719,7 @@ export default function MemeGenerator() {
               </button>
             </div>
             <div className="text-center italic text-zinc-600 text-[10px] mt-4">
-              "Daily Rizz Tip: If you don't know what it means, you're too old."
+              &quot;Daily Rizz Tip: If you don&apos;t know what it means, you&apos;re too old.&quot;
             </div>
           </div>
         )}
@@ -620,13 +728,30 @@ export default function MemeGenerator() {
       {/* History Section */}
       {history.length > 0 && (
         <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 md:p-8 space-y-6">
-          <div className="flex items-center gap-2 text-zinc-400 font-medium">
-            <ImageIcon size={20} />
-            <h2 className="text-xl">The Hall of Shame (History)</h2>
+          <div className="flex items-center justify-between gap-2 text-zinc-400 font-medium">
+            <div className="flex items-center gap-2">
+              <ImageIcon size={20} />
+              <h2 className="text-xl">The Hall of Shame (History)</h2>
+            </div>
+            <button 
+              onClick={clearHistory}
+              className="px-3 py-1.5 bg-red-900/20 hover:bg-red-900/40 text-red-400 text-xs font-bold rounded-lg border border-red-500/20 transition-colors"
+            >
+              Clear All
+            </button>
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
             {history.map((item, i) => (
-              <div key={i} className="group relative rounded-lg overflow-hidden border border-zinc-800 bg-zinc-950 aspect-square cursor-pointer" onClick={() => window.open(item.url, '_blank')}>
+              <div key={i} className="group relative rounded-lg overflow-hidden border border-zinc-800 bg-zinc-950 aspect-square cursor-pointer" 
+                onClick={() => {
+                  if (item.top && item.bottom && item.template) {
+                    setCurrentMeme({ url: item.url, top: item.top, bottom: item.bottom, template: item.template });
+                    setTopic(item.topic);
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                  } else {
+                    window.open(item.url, '_blank');
+                  }
+                }}>
                 <img src={item.url} alt={item.topic} className="w-full h-full object-cover transition-transform group-hover:scale-110" />
                 <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center p-2 text-center">
                   <span className="text-xs text-zinc-300 line-clamp-3">{item.topic}</span>

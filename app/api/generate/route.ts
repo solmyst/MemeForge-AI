@@ -10,29 +10,21 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Topic is required" }, { status: 400 });
     }
 
-    const prompt = `
-      You are the world's most savage meme creator and a master of GenZ / Internet brainrot humor.
-      Your task is to turn a factual description into a 2-part meme caption that is relatable, ironic, and hilarious.
+    const systemPrompt = `You are the MemeForge AI, a savage, elite meme generator. Your goal is to create the most relatable, viral, and often "out of pocket" humorous captions.
+        
+        RULES:
+        1. PERSPECTIVE: Use "Me:", "That feeling when", "When you", or direct punchlines.
+        2. HUMOR STYLES:
+           - GenZ/Brainrot: Use slang like aura, rizz, cooked, sigma, mogging, delulu. High-energy and nonsensical.
+           - Dark: Cynical, relatable pain, or dark observations about life/society.
+           - Sarcastic: Dry, biting ironies about everyday stupidity.
+           - Corporate: Passive-aggressive office life, burnout, and HR-hating humor.
+        3. HINGLISH: IMPORTANT! 50% of the time, mix Hindi words (written in English script) into the caption (e.g., "Moye Moye", "Thala for a reason", "Kat gaya", "Systumm", "Zindagi jhand ba").
+        4. STRUCTURE: strictly 2 lines (Top and Bottom text).
+        5. LENGTH: Maximum 30 words total. Be punchy but descriptive enough to be funny.
+        6. OUTPUT: Return STRICT JSON format: {"topText": "...", "bottomText": "..."}`;
 
-      Scenario: "${topic}"
-      Humor Style: ${humorStyle || 'GenZ Brainrot'}
-
-      MEME CREATION RULES:
-      1. Use modern slang where appropriate (rizz, aura, cooked, main character, canon event, skibidi, fanum tax, crashout, etc.).
-      2. Keep it punchy: Max 4-5 words per line.
-      3. The Top Text identifies the situation ("POV: ...", "When you ...", "Me: ...").
-      4. The Bottom Text is the soul-crushing or ironic reaction.
-      5. BE ABSOLUTELY SAVAGE. Make it actually funny for 2026. No "wholesome" content allowed.
-
-      EXAMPLES:
-      Scenario: "person looking stressed while staring at a keyboard"
-      {"topText": "me writing 'best regards'", "bottomText": "actually wishing for their downfall"}
-
-      Scenario: "a small dog looking proud in a tiny hat"
-      {"topText": "POV: you have 1000 aura", "bottomText": "but still live with your mom"}
-
-      Return ONLY a JSON object: {"topText": "...", "bottomText": "..."}
-    `;
+    const userPrompt = `Scenario/Topic: "${topic}"\nHumor Style: ${humorStyle}`;
 
     let topText = "";
     let bottomText = "";
@@ -42,22 +34,30 @@ export async function POST(req: Request) {
     while (attempts < 3) {
       attempts++;
       
-    const model = process.env.OLLAMA_MODEL || "llama3.1:latest";
+    const model = process.env.OLLAMA_MODEL || "llama3.1";
     console.log(`\n🤖 [AI GENERATE] Model: ${model}`);
     
     // Connect to Local Ollama Instance with 120s timeout (increased for slow model swaps)
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 120000);
+    const timeoutId = setTimeout(() => controller.abort(), 300000);
 
-    const ollamaRes = await fetch('http://localhost:11434/api/chat', {
+    const baseUrl = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
+    const ollamaRes = await fetch(`${baseUrl}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: model,
-        messages: [{ role: "user", content: prompt }],
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt }
+        ],
         format: attempts < 3 ? "json" : undefined, // Try without JSON format on last attempt
         stream: false,
-        keep_alive: 0 // Free up RAM immediately after generation
+        keep_alive: "5m",
+        options: {
+          num_predict: 150,
+          temperature: 0.8
+        }
       }),
       signal: controller.signal
     });
@@ -138,6 +138,11 @@ export async function POST(req: Request) {
   } catch (error: any) {
     console.error("AI Generation Error:", error);
     // If fetch failed completely, it signifies Ollama is simply off.
+    if (error.name === 'AbortError' || error.message.includes('aborted')) {
+      return NextResponse.json({ 
+        error: "Generation timed out. The model took too long to respond. You might want to try a smaller model like 'llama3.1' or 'moondream' for better performance on your CPU." 
+      }, { status: 504 });
+    }
     if (error.cause?.code === 'ECONNREFUSED' || error.message.includes('fetch failed')) {
       return NextResponse.json({ error: "Could not connect to Ollama. Make sure 'Ollama' is running locally on port 11434!" }, { status: 500 });
     }

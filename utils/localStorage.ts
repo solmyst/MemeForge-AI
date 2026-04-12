@@ -1,6 +1,9 @@
 export interface MemeHistoryItem {
   url: string;
   topic: string;
+  top?: string;
+  bottom?: string;
+  template?: any;
   timestamp: number;
 }
 
@@ -9,7 +12,7 @@ export function saveMemeToHistory(meme: MemeHistoryItem) {
   const history = getMemeHistory();
   history.unshift(meme);
   // Keep only last 5
-  if (history.length > 5) history.pop();
+  if (history.length > 10) history.pop();
   localStorage.setItem('memeHistory', JSON.stringify(history));
 }
 
