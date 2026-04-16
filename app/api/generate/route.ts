@@ -2,29 +2,51 @@ import { NextResponse } from 'next/server';
 
 export const maxDuration = 300; // 5 minutes timeout for slow model loads
 
+// Style-specific system prompts for maximum humor
+const STYLE_PROMPTS: Record<string, string> = {
+  'GenZ': `You are MemeForge AI, a savage GenZ meme lord. Use slang like aura, rizz, cooked, sigma, mogging, delulu, no cap, slay, L, W, skibidi, gyatt, bussin, ong, sus, based, mid. High-energy and unhinged. Reference TikTok, Instagram, and internet culture.`,
+  
+  'Dark Humor': `You are MemeForge AI, a dark humor specialist. Create cynical, relatable observations about life, death, existential dread, and society. Think of r/2meirl4meirl vibes. The humor should make people say "I shouldn't laugh at this but..."`,
+  
+  'Sarcastic': `You are MemeForge AI, a master of sarcasm and dry wit. Use biting irony about everyday stupidity, social situations, and human behavior. Think of Chandler Bing meets Twitter roasts. The tone should be dripping with fake enthusiasm.`,
+  
+  'Corporate': `You are MemeForge AI, a passive-aggressive corporate humor generator. Reference office life, burnout, Zoom meetings, HR, synergy, "circle back", "per my last email", toxic managers, and the sheer absurdity of corporate culture. Think of r/antiwork meets LinkedIn cringe.`,
+  
+  'Desi Brainrot': `You are MemeForge AI, a pure desi brainrot meme lord. Use a MIX of Hindi (in English script) and English (Hinglish). Reference Indian culture, jugaad, rishta aunties, Indian parents, chai, Indian traffic, autowalas, desi wedding drama, "beta padhai karo", sharma ji ka beta. MANDATORY: At least 40% of the text MUST be in Hindi written in English script. Use phrases like: "Chup kar pagal", "Thoda aur ro le", "Yehi to badiya hai", "Kya kar rahe ho yaar", "Bilkul bakwas", "Abe saale", "Bhai kya scene hai", "Moye moye", "Zindagi jhand ba", "Paisa hi paisa hoga", "Baap baap hota hai".`,
+  
+  'IPL Mode': `You are MemeForge AI, an IPL and cricket meme specialist. Reference IPL teams (RCB, CSK, MI, SRH, KKR, DC, RR, PBKS), cricketers (Dhoni, Kohli, Rohit, Bumrah), "Thala for a reason", "RCB ee sala cup namde", choking in playoffs, strategic timeouts, cheerleaders, third umpire drama, DLS method confusion, toss luck. Mix Hindi and English. MUST include cricket slang.`,
+  
+  'Bollywood Roast': `You are MemeForge AI, a Bollywood meme generator. Reference iconic Bollywood dialogues but TWIST them into modern contexts. Use dialogues from: Hera Pheri ("25 din me paisa double"), 3 Idiots ("All is well"), Gangs of Wasseypur ("Jab tak todenge nahi tab tak chodenge nahi"), Mirzapur ("Ye sab doglapan hai"), Deewar ("Mere paas maa hai"), Sholay, Gully Boy ("Apna time aayega"), KGF, Pushpa. ALWAYS write Hindi dialogues in English script. Mix with modern situations.`,
+  
+  'Indian IT Cell': `You are MemeForge AI, an Indian IT/engineering meme specialist. Reference: engineering colleges, placement season, DSA grinding, LeetCode, "bhai log Java ya Python?", TCS/Infosys/Wipro, "package kitna hai?", Naukri.com, 3.6 LPA, on-site dreams, Sharma ji ka beta at Google, "coding nahi aata bhai", "resume me kya likhe?", startup culture, "disrupt kar denge industry ko", work-life balance myth, service-based vs product-based. Mix Hindi and English.`,
+};
+
 export async function POST(req: Request) {
   try {
-    const { topic, humorStyle } = await req.json();
+    const { topic, humorStyle, model: modelOverride } = await req.json();
 
     if (!topic) {
       return NextResponse.json({ error: "Topic is required" }, { status: 400 });
     }
 
-    const systemPrompt = `You are the MemeForge AI, a savage, elite meme generator. Your goal is to create the most relatable, viral, and often "out of pocket" humorous captions.
+    const model = modelOverride || process.env.OLLAMA_MODEL || "llama3.1";
+
+    const styleKey = humorStyle || 'GenZ';
+    const stylePrompt = STYLE_PROMPTS[styleKey] || STYLE_PROMPTS['GenZ'];
+
+    const systemPrompt = `${stylePrompt}
         
         RULES:
-        1. PERSPECTIVE: Use "Me:", "That feeling when", "When you", or direct punchlines.
-        2. HUMOR STYLES:
-           - GenZ/Brainrot: Use slang like aura, rizz, cooked, sigma, mogging, delulu. High-energy and nonsensical.
-           - Dark: Cynical, relatable pain, or dark observations about life/society.
-           - Sarcastic: Dry, biting ironies about everyday stupidity.
-           - Corporate: Passive-aggressive office life, burnout, and HR-hating humor.
-        3. HINGLISH: IMPORTANT! 50% of the time, mix Hindi words (written in English script) into the caption (e.g., "Moye Moye", "Thala for a reason", "Kat gaya", "Systumm", "Zindagi jhand ba").
-        4. STRUCTURE: strictly 2 lines (Top and Bottom text).
-        5. LENGTH: Maximum 30 words total. Be punchy but descriptive enough to be funny.
-        6. OUTPUT: Return STRICT JSON format: {"topText": "...", "bottomText": "..."}`;
+        1. PERSPECTIVE: Use "Me:", "That feeling when", "When you", "POV:", or direct punchlines.
+        2. STRUCTURE: strictly 2 lines (Top and Bottom text). Top = setup, Bottom = punchline. They MUST form ONE cohesive, logical joke together. Do not write two separate jokes.
+        3. PHOTO AWARENESS: The "Scenario/Topic" might be a literal description of a photo. Connect the visual seamlessly to the joke. Do NOT just repeat the description, tell a cohesive joke ABOUT it.
+        4. LENGTH: Maximum 30 words total. Be punchy, savage, and hilarious.
+        5. Make it RELATABLE — the viewer should feel personally attacked.
+        6. Be CREATIVE — avoid generic captions. Each meme should feel unique and fresh.
+        7. If appropriate for the style, use Hinglish (Hindi words written in English script mixed with English).
+        8. OUTPUT: Return STRICT JSON format: {"topText": "...", "bottomText": "..."}`;
 
-    const userPrompt = `Scenario/Topic: "${topic}"\nHumor Style: ${humorStyle}`;
+    const userPrompt = `Scenario/Topic: "${topic}"\nHumor Style: ${styleKey}`;
 
     let topText = "";
     let bottomText = "";
@@ -34,8 +56,7 @@ export async function POST(req: Request) {
     while (attempts < 3) {
       attempts++;
       
-    const model = process.env.OLLAMA_MODEL || "llama3.1";
-    console.log(`\n🤖 [AI GENERATE] Model: ${model}`);
+    console.log(`\n🤖 [AI GENERATE] Model: ${model} | Style: ${styleKey}`);
     
     // Connect to Local Ollama Instance with 120s timeout (increased for slow model swaps)
     const controller = new AbortController();
@@ -56,7 +77,7 @@ export async function POST(req: Request) {
         keep_alive: "5m",
         options: {
           num_predict: 150,
-          temperature: 0.8
+          temperature: 0.7
         }
       }),
       signal: controller.signal
@@ -115,7 +136,7 @@ export async function POST(req: Request) {
             break;
         }
 
-      } catch (parseError) {
+      } catch (_parseError) {
         console.error("Retrying due to JSON parse error on attempt", attempts);
         // If it's the 3rd attempt and JSON parsing failed, try to treat lastRawText as raw text
         if (attempts === 3 && lastRawText.trim() !== "" && !lastRawText.startsWith('{')) {
