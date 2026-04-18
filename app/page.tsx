@@ -50,7 +50,7 @@ export default function Home() {
         {/* Footer */}
         <footer className="text-center text-zinc-600 text-sm pt-8 pb-6 border-t border-zinc-800/50 flex flex-col items-center gap-4">
           <p>© 2026 Meme Bhandar — by{' '}
-            <span className="text-zinc-500 font-medium">Gangs of Washpur</span>
+            <span className="text-zinc-500 font-medium">Gangs of Jecrcpur</span>
           </p>
           <div className="flex items-center gap-3">
             <div className="text-xs italic glass px-3 py-1.5 rounded-full">
