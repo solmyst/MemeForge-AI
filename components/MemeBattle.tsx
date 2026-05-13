@@ -41,7 +41,7 @@ export default function MemeBattle({ templates, onSoundFX }: MemeBattleProps) {
   const [voted, setVoted] = useState<'A' | 'B' | null>(null);
   const [totalBattles, setTotalBattles] = useState(0);
   const [config, setConfig] = useState<BattleConfig | null>(null);
-
+  const [userApiKey, setUserApiKey] = useState('');
   useEffect(() => {
     const saved = localStorage.getItem('memeBattleCount');
     if (saved) setTotalBattles(parseInt(saved));
@@ -51,6 +51,10 @@ export default function MemeBattle({ templates, onSoundFX }: MemeBattleProps) {
       .then(res => res.json())
       .then(data => setConfig(data))
       .catch(err => console.error('Config load error:', err));
+
+    // Load API Key from localStorage
+    const savedKey = localStorage.getItem('openai_api_key');
+    if (savedKey) setUserApiKey(savedKey);
   }, []);
 
   const generateCaption = async (topicStr: string, style: string, model?: string) => {
@@ -60,7 +64,8 @@ export default function MemeBattle({ templates, onSoundFX }: MemeBattleProps) {
       body: JSON.stringify({ 
         topic: topicStr, 
         humorStyle: style,
-        model: model 
+        model: model,
+        userApiKey: userApiKey
       }),
     });
     const data = await res.json();
@@ -107,9 +112,9 @@ export default function MemeBattle({ templates, onSoundFX }: MemeBattleProps) {
       });
 
       onSoundFX?.();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Battle error:', error);
-      alert('Battle failed! Make sure Ollama is running.');
+      alert(`Meme Battle Failed: ${error.message || 'Unknown error'}\n\n💡 Tip: Make sure Ollama is running or your OpenAI key is valid.`);
     } finally {
       setLoading(false);
     }

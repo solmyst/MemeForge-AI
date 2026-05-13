@@ -5,7 +5,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { getTrendingTemplates, getRandomTemplate, MemeTemplate } from '@/services/memegen';
 import { buildMemeURL } from '@/utils/memeUrlBuilder';
 import { saveMemeToHistory, getMemeHistory, MemeHistoryItem } from '@/utils/localStorage';
-import { Loader2, Shuffle, RefreshCw, Image as ImageIcon, Camera, Type, CameraOff, Aperture, Monitor, Trash2, X } from 'lucide-react';
+import { Loader2, Shuffle, RefreshCw, Image as ImageIcon, Camera, Type, CameraOff, Aperture, Monitor, Trash2, X, Settings, Key, Check, Info } from 'lucide-react';
 
 import MemeRoulette from './MemeRoulette';
 import MemeBattle from './MemeBattle';
@@ -59,6 +59,9 @@ export default function MemeGenerator() {
   const [photoDescription, setPhotoDescription] = useState<string | null>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [showSettings, setShowSettings] = useState(false);
+  const [userApiKey, setUserApiKey] = useState('');
+  const [tempApiKey, setTempApiKey] = useState('');
 
   // Sound FX
   const { enabled: soundEnabled, setEnabled: setSoundEnabled, playRandomSound } = useSoundFX();
@@ -108,6 +111,14 @@ export default function MemeGenerator() {
       setDeferredPrompt(e);
     };
     window.addEventListener('beforeinstallprompt', handler);
+    
+    // Load API Key from localStorage
+    const savedKey = localStorage.getItem('openai_api_key');
+    if (savedKey) {
+      setUserApiKey(savedKey);
+      setTempApiKey(savedKey);
+    }
+
     return () => window.removeEventListener('beforeinstallprompt', handler);
   }, []);
 
@@ -272,7 +283,7 @@ export default function MemeGenerator() {
       const descRes = await fetch('/api/describe-photo', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image: base64 }),
+        body: JSON.stringify({ image: base64, userApiKey }),
       });
       const { description, error } = await descRes.json();
       if (!descRes.ok) throw new Error(error || 'Failed to describe photo');
@@ -324,11 +335,14 @@ export default function MemeGenerator() {
       console.log("Custom meme generated successfully!");
     } catch (error: Error | any) {
       console.error("Generation error:", error);
-      const isTimeout = error.name === 'AbortError' || error.message.includes('timeout') || error.message.includes('signal');
-      const helpText = isTimeout 
-        ? ' - The AI is taking too long to load. Try closing other apps or freeing up disk space!' 
-        : ' - Check your connection to Ollama.';
-      alert((error.message || 'Something went wrong!') + helpText);
+      const errorMessage = error.message || 'Something went wrong!';
+      const helpText = errorMessage.includes('Ollama') 
+        ? '\n\n💡 Tip: Check if Ollama is running, or add an OpenAI API key to .env.local'
+        : errorMessage.includes('OpenAI')
+        ? '\n\n💡 Tip: Check your OpenAI API key and quota.'
+        : '';
+      
+      alert(`Meme Forge Error: ${errorMessage}${helpText}`);
     } finally {
       setLoading(false);
     }
@@ -449,7 +463,7 @@ export default function MemeGenerator() {
     const res = await fetch('/api/generate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ topic: topicStr, humorStyle: styleStr }),
+      body: JSON.stringify({ topic: topicStr, humorStyle: styleStr, userApiKey }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Failed to generate');
@@ -505,7 +519,8 @@ export default function MemeGenerator() {
       setHistory(getMemeHistory());
     } catch (error: Error | any) {
       console.error(error);
-      alert(error.message || 'Something went wrong generating the meme!');
+            alert(`Meme Forge Error: ${error.message || 'Something went wrong!'}\n\n💡 Tip: Check if Ollama is running, or add an OpenAI API key to .env.local`);
+
     } finally {
       setLoading(false);
     }
@@ -532,9 +547,9 @@ export default function MemeGenerator() {
         timestamp: Date.now()
       });
       setHistory(getMemeHistory());
-    } catch (error: Error | any) {
+    } catch (error: any) {
       console.error(error);
-      alert(error.message || 'Something went wrong generating the meme!');
+      alert(`Meme Forge Error: ${error.message || 'Something went wrong!'}\n\n💡 Tip: Check if Ollama is running, or add an OpenAI API key to .env.local`);
     } finally {
       setLoading(false);
     }
@@ -568,9 +583,9 @@ export default function MemeGenerator() {
         timestamp: Date.now() 
       });
       setHistory(getMemeHistory());
-    } catch (error: Error | any) {
+    } catch (error: any) {
       console.error(error);
-      alert(error.message || 'Failed to regenerate caption');
+      alert(`Meme Forge Error: ${error.message || 'Failed to regenerate caption'}\n\n💡 Tip: Check your API key or connection.`);
     } finally {
       setLoading(false);
     }
@@ -611,10 +626,18 @@ export default function MemeGenerator() {
     }
   };
 
+  const saveSettings = () => {
+    localStorage.setItem('openai_api_key', tempApiKey);
+    setUserApiKey(tempApiKey);
+    setShowSettings(false);
+    alert('Settings saved! Using your OpenAI key for next memes.');
+  };
+
   const HUMOR_STYLES = [
     { value: 'GenZ', label: '🧠 GenZ Brainrot' },
     { value: 'Dark Humor', label: '💀 Dark Humor' },
     { value: 'Sarcastic', label: '🙄 Sarcastic' },
+    { value: 'Savage Roast', label: '🔥 Savage Roast' },
     { value: 'Corporate', label: '💼 Corporate' },
     { value: 'Desi Brainrot', label: '☕ Desi Brainrot' },
     { value: 'IPL Mode', label: '🏏 IPL Mode' },
@@ -682,7 +705,61 @@ export default function MemeGenerator() {
         </select>
 
         <SoundToggle enabled={soundEnabled} onToggle={() => setSoundEnabled(!soundEnabled)} />
+        
+        <button
+          onClick={() => setShowSettings(true)}
+          className={`p-3 glass rounded-xl text-zinc-400 hover:text-white transition-all ${showSettings ? 'bg-purple-600/20 text-purple-400' : ''}`}
+          title="Settings"
+        >
+          <Settings size={20} />
+        </button>
       </div>
+
+      {/* ── Settings Modal ── */}
+      {showSettings && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
+          <div className="glass-strong rounded-2xl w-full max-w-md p-6 space-y-6 shadow-2xl border border-white/10 animate-zoom-in">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Settings className="text-purple-400" size={24} />
+                <h2 className="text-xl font-bold text-white">Settings</h2>
+              </div>
+              <button onClick={() => setShowSettings(false)} className="text-zinc-500 hover:text-white transition-colors">
+                <X size={24} />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-zinc-300 flex items-center gap-2">
+                  <Key size={14} className="text-purple-400" />
+                  OpenAI API Key (Optional)
+                </label>
+                <input
+                  type="password"
+                  value={tempApiKey}
+                  onChange={(e) => setTempApiKey(e.target.value)}
+                  placeholder="sk-..."
+                  className="w-full px-4 py-3 bg-zinc-950 border border-zinc-800 rounded-xl text-white placeholder-zinc-700 focus:ring-2 focus:ring-purple-500 outline-none transition-all"
+                />
+                <p className="text-[10px] text-zinc-500 flex items-start gap-1">
+                  <Info size={10} className="mt-0.5 shrink-0" />
+                  Stored locally in your browser. Used to power cloud-based generation if Ollama is unavailable.
+                </p>
+              </div>
+
+              <div className="pt-2">
+                <button
+                  onClick={saveSettings}
+                  className="w-full py-3 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold rounded-xl transition-all shadow-lg flex items-center justify-center gap-2"
+                >
+                  <Check size={18} /> Save Settings
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Main Generator Section ── */}
       <div className="glass-strong rounded-2xl shadow-2xl p-6 md:p-8 space-y-6 neon-glow">
